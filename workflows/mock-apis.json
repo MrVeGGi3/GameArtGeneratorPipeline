@@ -1,0 +1,218 @@
+{
+  "name": "Game Art - Mock APIs",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Mock APIs (Nano Banana/Gemini + Meshy)\nImitam as APIs reais (mesmo formato de resposta) para testar o pipeline sem custo. A task do Meshy fica `IN_PROGRESS` por ~35 s e depois retorna `SUCCEEDED` com um .glb de exemplo (Khronos Duck). Ative (Publish) este workflow antes de usar o pipeline.",
+        "width": 1000,
+        "height": 180,
+        "color": 7
+      },
+      "id": "e10ed1db-d373-5e30-998c-f7df3400979a",
+      "name": "Note: Mock",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        60,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mock/nanobanana/generate",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "f9788e94-7500-543e-9c96-dc799c1c2913",
+      "name": "Mock NanoBanana",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        280
+      ],
+      "webhookId": "656328a3-a480-5df7-8974-dd3eb98fcbf2"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://placehold.co/1024x1024/ffffff/333333/png?text=' + encodeURIComponent(String($json.body?.contents?.[0]?.parts?.[0]?.text ?? 'asset').split(/\\s+/).slice(0, 8).join(' ')) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "cdbba6a2-c100-5073-b8c5-7a9c56049725",
+      "name": "Fetch Placeholder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "data",
+        "destinationKey": "b64",
+        "options": {}
+      },
+      "id": "4426407e-54cc-56f2-b75b-0c788fbe1328",
+      "name": "Placeholder to Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        540,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formato da resposta real: imagem em base64 em candidates[0].content.parts[].inlineData\nreturn [{ json: {\n  candidates: [{\n    content: { role: 'model', parts: [{ inlineData: { mimeType: 'image/png', data: $input.first().json.b64 } }] },\n    finishReason: 'STOP',\n  }],\n  modelVersion: 'mock-nano-banana',\n} }];\n"
+      },
+      "id": "dfbe7cc9-ad89-525f-a653-44017aa15033",
+      "name": "Fake Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mock/meshy/image-to-3d",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "14b68a00-ee12-5161-8d5f-e911a8f67344",
+      "name": "Mock Meshy Create",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        460
+      ],
+      "webhookId": "8db3039c-a7c5-5a32-99e0-d7cbc8cb540e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mesmo formato do Meshy: { \"result\": \"<task_id>\" }. O timestamp vai no id (mock sem estado).\nreturn [{ json: { result: 'mock-' + Date.now() } }];\n"
+      },
+      "id": "089f8496-47a0-5ce6-b405-d92317c5a115",
+      "name": "Fake Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "mock/meshy/status",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1ef6b2c0-99f4-52a2-a219-c170357aaa9d",
+      "name": "Mock Meshy Status",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        640
+      ],
+      "webhookId": "042c242d-8936-5780-9a0b-e0add0754307"
+    },
+    {
+      "parameters": {
+        "jsCode": "const id = String($input.first().json.query?.task_id ?? '');\nconst started = Number(id.replace('mock-', ''));\nif (!started) return [{ json: { id, status: 'FAILED', task_error: { message: 'task_id desconhecido' } } }];\n\nconst DURATION_MS = 35000;\nconst progress = Math.min(100, Math.round(((Date.now() - started) / DURATION_MS) * 100));\nif (progress < 100) return [{ json: { id, status: progress < 5 ? 'PENDING' : 'IN_PROGRESS', progress } }];\n\nreturn [{ json: {\n  id,\n  status: 'SUCCEEDED',\n  progress: 100,\n  model_urls: { glb: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb' },\n  thumbnail_url: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/screenshot/screenshot.png',\n} }];\n"
+      },
+      "id": "b023ae4e-7498-5c0b-b15f-f1d490430f49",
+      "name": "Fake Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        640
+      ]
+    }
+  ],
+  "connections": {
+    "Mock NanoBanana": {
+      "main": [
+        [
+          {
+            "node": "Fetch Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Placeholder to Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Placeholder to Base64": {
+      "main": [
+        [
+          {
+            "node": "Fake Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Meshy Create": {
+      "main": [
+        [
+          {
+            "node": "Fake Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Meshy Status": {
+      "main": [
+        [
+          {
+            "node": "Fake Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "gameArtMockApis1",
+  "active": false,
+  "tags": []
+}

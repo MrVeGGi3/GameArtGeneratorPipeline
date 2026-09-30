@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!--
+  Página de revisão (Human-in-the-Loop).
+  Template renderizado pelo nó Code "Render Review Page" do workflow "Game Art Pipeline".
+  Os tokens {{...}} são substituídos (já com HTML-escape) pelo Code node:
+    {{IMAGE_URL}}  {{PROMPT}}  {{BASE_PROMPT}}  {{STYLE}}  {{ITERATION}}  {{RESUME_URL}}
+  {{RESUME_URL}} = $execution.resumeUrl do nó Wait "Wait for Review" (já inclui a assinatura).
+  O form faz POST (application/x-www-form-urlencoded) com os campos: feedback, action=approve|modify.
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Revisão de Asset 2D</title>
+<style>
+  :root { --bg:#0f1117; --card:#171a23; --line:#2a2f3d; --text:#e7e9ee; --muted:#9aa3b2;
+          --ok:#22c55e; --ok-h:#16a34a; --warn:#f59e0b; --warn-h:#d97706; --accent:#8b5cf6; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; padding:24px 16px; }
+  .wrap { max-width:1100px; margin:0 auto; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+  h1 { font-size:22px; margin:0; }
+  .badges { display:flex; gap:8px; flex-wrap:wrap; }
+  .badge { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .badge b { color:var(--text); }
+  .grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:20px; }
+  @media (max-width:820px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .preview { display:flex; align-items:center; justify-content:center; padding:12px;
+             background:repeating-conic-gradient(#1d212c 0% 25%, #232835 0% 50%) 50%/24px 24px; border-radius:10px; }
+  .preview img { max-width:100%; max-height:70vh; border-radius:6px; display:block; }
+  .open { display:inline-block; margin-top:10px; color:var(--muted); font-size:13px; }
+  label { display:block; font-weight:600; margin-bottom:8px; }
+  textarea { width:100%; min-height:140px; resize:vertical; padding:12px; border-radius:10px; border:1px solid var(--line);
+             background:#0c0e14; color:var(--text); font:inherit; }
+  textarea:focus { outline:2px solid var(--accent); border-color:transparent; }
+  .hint { color:var(--muted); font-size:13px; margin:8px 0 16px; }
+  .actions { display:flex; gap:12px; }
+  button { flex:1; border:0; border-radius:10px; padding:14px 16px; font:600 15px/1 inherit; cursor:pointer; color:#0b0d12; transition:background .15s; }
+  .approve { background:var(--ok); } .approve:hover { background:var(--ok-h); }
+  .modify { background:var(--warn); } .modify:hover { background:var(--warn-h); }
+  button:disabled { opacity:.6; cursor:wait; }
+  details { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  pre { white-space:pre-wrap; word-break:break-word; background:#0c0e14; border:1px solid var(--line);
+        border-radius:8px; padding:10px; font-size:12.5px; color:#c9cfdb; }
+  .status { display:none; margin-top:14px; color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Revisão do asset 2D</h1>
+    <div class="badges">
+      <span class="badge">Iteração <b>#{{ITERATION}}</b></span>
+      <span class="badge">Estilo 3D <b>{{STYLE}}</b></span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <div class="preview"><img src="{{IMAGE_URL}}" alt="Imagem 2D gerada"></div>
+      <a class="open" href="{{IMAGE_URL}}" target="_blank" rel="noopener">Abrir imagem em nova aba ↗</a>
+    </section>
+
+    <section class="card">
+      <form id="review" method="POST" action="{{RESUME_URL}}">
+        <label for="feedback">Feedback</label>
+        <textarea id="feedback" name="feedback" placeholder="Ex.: deixe a armadura mais escura, remova a capa, vista 100% frontal..."></textarea>
+        <p class="hint"><b>Aprovar</b> envia esta imagem para o gerador 3D. <b>Modificar</b> gera uma nova imagem aplicando o feedback.</p>
+        <div class="actions">
+          <button class="approve" type="submit" name="action" value="approve">✔ Aprovar</button>
+          <button class="modify" type="submit" name="action" value="modify">↻ Modificar</button>
+        </div>
+        <p class="status" id="status">Enviando… aguarde, a próxima página abre sozinha.</p>
+      </form>
+
+      <details>
+        <summary>Ideia original</summary>
+        <pre>{{BASE_PROMPT}}</pre>
+      </details>
+      <details>
+        <summary>Prompt técnico usado na geração</summary>
+        <pre>{{PROMPT}}</pre>
+      </details>
+    </section>
+  </div>
+</div>
+<script>
+  // Evita duplo envio. O valor do botão clicado precisa ir no POST, por isso
+  // copiamos para um input hidden antes de desabilitar os botões.
+  document.getElementById('review').addEventListener('submit', function (e) {
+    var btn = e.submitter;
+    if (btn) {
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = btn.name; h.value = btn.value;
+      this.appendChild(h);
+    }
+    this.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    document.getElementById('status').style.display = 'block';
+  });
+</script>
+</body>
+</html>

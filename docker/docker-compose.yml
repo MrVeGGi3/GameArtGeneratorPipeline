@@ -1,0 +1,54 @@
+# n8n dedicado ao Game Art Generator Pipeline.
+# Uso:  cp .env.example .env  &&  docker compose up -d   (dentro da pasta docker/)
+name: game-art-pipeline
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION:-latest}
+    container_name: game-art-n8n
+    restart: unless-stopped
+    # Mesmo UID/GID do seu usuário no host -> arquivos .glb saem com o seu dono (Linux/macOS).
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "${N8N_HOST_PORT:-5679}:5678"
+    environment:
+      - GENERIC_TIMEZONE=${TZ:-America/Sao_Paulo}
+      - TZ=${TZ:-America/Sao_Paulo}
+      # URL pública usada para montar $execution.resumeUrl e as URLs de webhook/form.
+      - WEBHOOK_URL=http://localhost:${N8N_HOST_PORT:-5679}/
+      - N8N_SECURE_COOKIE=false
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      # ---- Acesso a disco (Read/Write Files from Disk) ----
+      # Só estes diretórios (dentro do container) podem ser lidos/escritos. Separe vários com ';'.
+      # /previews guarda as prévias 2D exibidas na página de revisão.
+      - N8N_RESTRICT_FILE_ACCESS_TO=/assets;/previews
+      # Continua bloqueando acesso à pasta interna do n8n (~/.n8n) — mantenha true.
+      - N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # Pasta do host onde os assets serão salvos -> /assets no container.
+      - ${ASSETS_HOST_PATH:-../assets}:/assets
+      # Prévias 2D (1 PNG por execução). Pode apagar o conteúdo quando quiser.
+      - ${PREVIEWS_HOST_PATH:-../previews}:/previews
+    depends_on:
+      - rembg
+
+  # Remoção de fundo self-hosted (https://github.com/danielgatis/rembg).
+  # O n8n acessa em http://rembg:7000/api/remove (rede interna do compose).
+  rembg:
+    image: danielgatis/rembg:${REMBG_VERSION:-latest}
+    container_name: game-art-rembg
+    restart: unless-stopped
+    command: ["s", "--host", "0.0.0.0", "--port", "7000", "--log_level", "info"]
+    environment:
+      # Cache dos modelos ONNX (baixados na 1ª requisição de cada modelo).
+      - U2NET_HOME=/models
+    volumes:
+      - rembg_models:/models
+    # Só para debug local (Swagger em http://localhost:7000/api). Pode remover.
+    ports:
+      - "127.0.0.1:${REMBG_HOST_PORT:-7000}:7000"
+
+volumes:
+  n8n_data:
+  rembg_models:

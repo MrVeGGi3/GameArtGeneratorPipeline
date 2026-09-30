@@ -1,0 +1,1993 @@
+{
+  "name": "Game Art Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 1 · Entrada (Form)\nO formulário nativo chama o pipeline via HTTP e redireciona o navegador para a página de revisão.\n\n> O n8n não permite *Respond to Webhook* em execuções iniciadas por Form Trigger, por isso o pipeline roda numa execução própria iniciada pelo Webhook `game-art/start`.",
+        "width": 700,
+        "height": 420,
+        "color": 6
+      },
+      "id": "6cf2802e-fb4f-569c-bc0b-407e833d27b0",
+      "name": "Note: Entrada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2 · IA de Prompting → 3 · Geração 2D (Nano Banana / Gemini)\nA imagem volta em base64, vira arquivo e é gravada em `/previews/<execução>.png`. O provedor (OpenAI/Gemini) é escolhido no form. **Context** é o ponto de entrada do loop de feedback. Edite URLs/limites só no nó **Config**.",
+        "width": 2700,
+        "height": 440,
+        "color": 4
+      },
+      "id": "27995610-303e-5f6e-a967-5d3d9c2e0f46",
+      "name": "Note: Prompt",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4 · Human-in-the-Loop\n**Respond: Open Review** redireciona o navegador para a página HTML (Webhook `game-art/review`), que faz POST para `$execution.resumeUrl` do nó **Wait for Review**. *Modificar* volta ao **Context** com o feedback acumulado; *Aprovar* segue para o 3D.",
+        "width": 2700,
+        "height": 400,
+        "color": 3
+      },
+      "id": "155c6ab6-d1b4-547c-b1ea-0ef76b587d01",
+      "name": "Note: HITL",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4b · Remoção de fundo (rembg) → 5 · Meshy image-to-3D (polling) → 6 · Download + Salvar\nApós aprovar: baixa a imagem, remove o fundo no rembg e envia o PNG (data URI base64) ao Meshy. Wait 15s ↔ Get Status até `SUCCEEDED` (máx. `maxPollAttempts`). O caminho do form é convertido para o caminho do container (`hostRoot` → `containerRoot`).",
+        "width": 2700,
+        "height": 520,
+        "color": 5
+      },
+      "id": "83d63dd7-572c-5e5d-a2a8-05a90f8a2b03",
+      "name": "Note: 3D",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Página de revisão (stateless)\nRenderiza o HTML a partir da query string (imagem, prompt, resumeUrl). Tudo é HTML-escaped e o `resume` só é aceito se apontar para `/webhook-waiting/`.\n\n**Preview Image** serve `/previews/<id>.png` (só aceita nomes `^\\d+\\.png$`).",
+        "width": 1100,
+        "height": 620,
+        "color": 7
+      },
+      "id": "785e9ab1-6fb2-5c37-ae3d-9d120306d3bb",
+      "name": "Note: Review",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        900,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "Game Art Generator",
+        "formDescription": "Descreva o asset. Você revisará a imagem 2D antes de gerar o modelo 3D (.glb).",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Prompt Base",
+              "fieldType": "textarea",
+              "requiredField": true,
+              "placeholder": "Ex.: cavaleiro anão com machado de runas"
+            },
+            {
+              "fieldLabel": "Caminho da Pasta Local",
+              "requiredField": true,
+              "placeholder": "C:\\Assets\\personagens  (ou /assets/personagens)"
+            },
+            {
+              "fieldLabel": "Estilo 3D",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Voxel"
+                  },
+                  {
+                    "option": "Low Poly"
+                  },
+                  {
+                    "option": "Realista"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Provedor LLM",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "OpenAI"
+                  },
+                  {
+                    "option": "Gemini"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "path": "game-art",
+          "buttonLabel": "Gerar imagem 2D",
+          "appendAttribution": false
+        }
+      },
+      "id": "ae4afc32-0be1-56d4-8599-1c523f6abb99",
+      "name": "Form: New Asset",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        200,
+        200
+      ],
+      "webhookId": "14217c97-f71f-5e85-a4da-c5f425e79da4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/game-art/start",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ basePrompt: $json['Prompt Base'], outputFolder: $json['Caminho da Pasta Local'], style: $json['Estilo 3D'], provider: $json['Provedor LLM'] }) }}",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "id": "6126ecab-1c9b-58e8-8e22-1c7adb2cda7b",
+      "name": "Start Pipeline Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "94eef056-57cc-5e60-909d-dc3baaf1155e",
+              "leftValue": "={{ $json.headers?.location }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "178cc2e4-e97d-5bc8-af3a-29507c94575c",
+      "name": "Pipeline Started?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "redirect",
+        "redirectUrl": "={{ $json.headers.location }}"
+      },
+      "id": "9747436f-d679-5571-905c-92d1d6f238c2",
+      "name": "Form: Open Review",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        860,
+        100
+      ],
+      "webhookId": "d5d471f0-7a6b-5b59-aa36-29ed01c94dd7"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "text",
+        "completionTitle": "Falha ao iniciar o pipeline",
+        "completionMessage": "={{ 'HTTP ' + $json.statusCode + ' — veja a aba Executions do n8n (workflow Game Art Pipeline).' }}"
+      },
+      "id": "2c1a6ad8-72e5-5722-8aa3-bf7a22701ee1",
+      "name": "Form: Start Failed",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        860,
+        300
+      ],
+      "webhookId": "09ec42f0-ba21-5335-b684-f7325f958782"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "game-art/review",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "56ae386a-9aff-5bc4-9903-5ea25a0f4f67",
+      "name": "Review Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        200
+      ],
+      "webhookId": "5f56c4f1-56a2-527b-99ff-844308b7bc9f"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Renderiza html/review-page.html a partir da query string (sem estado no servidor).\nconst TEMPLATE = \"<!DOCTYPE html>\\n<html lang=\\\"pt-BR\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\">\\n<title>Revisão de Asset 2D</title>\\n<style>\\n  :root { --bg:#0f1117; --card:#171a23; --line:#2a2f3d; --text:#e7e9ee; --muted:#9aa3b2;\\n          --ok:#22c55e; --ok-h:#16a34a; --warn:#f59e0b; --warn-h:#d97706; --accent:#8b5cf6; }\\n  * { box-sizing:border-box; }\\n  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text);\\n         font:15px/1.5 system-ui,-apple-system,\\\"Segoe UI\\\",Roboto,sans-serif; padding:24px 16px; }\\n  .wrap { max-width:1100px; margin:0 auto; }\\n  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:20px; }\\n  h1 { font-size:22px; margin:0; }\\n  .badges { display:flex; gap:8px; flex-wrap:wrap; }\\n  .badge { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }\\n  .badge b { color:var(--text); }\\n  .grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:20px; }\\n  @media (max-width:820px) { .grid { grid-template-columns:1fr; } }\\n  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }\\n  .preview { display:flex; align-items:center; justify-content:center; padding:12px;\\n             background:repeating-conic-gradient(#1d212c 0% 25%, #232835 0% 50%) 50%/24px 24px; border-radius:10px; }\\n  .preview img { max-width:100%; max-height:70vh; border-radius:6px; display:block; }\\n  .open { display:inline-block; margin-top:10px; color:var(--muted); font-size:13px; }\\n  label { display:block; font-weight:600; margin-bottom:8px; }\\n  textarea { width:100%; min-height:140px; resize:vertical; padding:12px; border-radius:10px; border:1px solid var(--line);\\n             background:#0c0e14; color:var(--text); font:inherit; }\\n  textarea:focus { outline:2px solid var(--accent); border-color:transparent; }\\n  .hint { color:var(--muted); font-size:13px; margin:8px 0 16px; }\\n  .actions { display:flex; gap:12px; }\\n  button { flex:1; border:0; border-radius:10px; padding:14px 16px; font:600 15px/1 inherit; cursor:pointer; color:#0b0d12; transition:background .15s; }\\n  .approve { background:var(--ok); } .approve:hover { background:var(--ok-h); }\\n  .modify { background:var(--warn); } .modify:hover { background:var(--warn-h); }\\n  button:disabled { opacity:.6; cursor:wait; }\\n  details { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }\\n  summary { cursor:pointer; color:var(--muted); font-size:13px; }\\n  pre { white-space:pre-wrap; word-break:break-word; background:#0c0e14; border:1px solid var(--line);\\n        border-radius:8px; padding:10px; font-size:12.5px; color:#c9cfdb; }\\n  .status { display:none; margin-top:14px; color:var(--muted); font-size:14px; }\\n</style>\\n</head>\\n<body>\\n<div class=\\\"wrap\\\">\\n  <header>\\n    <h1>Revisão do asset 2D</h1>\\n    <div class=\\\"badges\\\">\\n      <span class=\\\"badge\\\">Iteração <b>#{{ITERATION}}</b></span>\\n      <span class=\\\"badge\\\">Estilo 3D <b>{{STYLE}}</b></span>\\n    </div>\\n  </header>\\n\\n  <div class=\\\"grid\\\">\\n    <section class=\\\"card\\\">\\n      <div class=\\\"preview\\\"><img src=\\\"{{IMAGE_URL}}\\\" alt=\\\"Imagem 2D gerada\\\"></div>\\n      <a class=\\\"open\\\" href=\\\"{{IMAGE_URL}}\\\" target=\\\"_blank\\\" rel=\\\"noopener\\\">Abrir imagem em nova aba ↗</a>\\n    </section>\\n\\n    <section class=\\\"card\\\">\\n      <form id=\\\"review\\\" method=\\\"POST\\\" action=\\\"{{RESUME_URL}}\\\">\\n        <label for=\\\"feedback\\\">Feedback</label>\\n        <textarea id=\\\"feedback\\\" name=\\\"feedback\\\" placeholder=\\\"Ex.: deixe a armadura mais escura, remova a capa, vista 100% frontal...\\\"></textarea>\\n        <p class=\\\"hint\\\"><b>Aprovar</b> envia esta imagem para o gerador 3D. <b>Modificar</b> gera uma nova imagem aplicando o feedback.</p>\\n        <div class=\\\"actions\\\">\\n          <button class=\\\"approve\\\" type=\\\"submit\\\" name=\\\"action\\\" value=\\\"approve\\\">✔ Aprovar</button>\\n          <button class=\\\"modify\\\" type=\\\"submit\\\" name=\\\"action\\\" value=\\\"modify\\\">↻ Modificar</button>\\n        </div>\\n        <p class=\\\"status\\\" id=\\\"status\\\">Enviando… aguarde, a próxima página abre sozinha.</p>\\n      </form>\\n\\n      <details>\\n        <summary>Ideia original</summary>\\n        <pre>{{BASE_PROMPT}}</pre>\\n      </details>\\n      <details>\\n        <summary>Prompt técnico usado na geração</summary>\\n        <pre>{{PROMPT}}</pre>\\n      </details>\\n    </section>\\n  </div>\\n</div>\\n<script>\\n  // Evita duplo envio. O valor do botão clicado precisa ir no POST, por isso\\n  // copiamos para um input hidden antes de desabilitar os botões.\\n  document.getElementById('review').addEventListener('submit', function (e) {\\n    var btn = e.submitter;\\n    if (btn) {\\n      var h = document.createElement('input');\\n      h.type = 'hidden'; h.name = btn.name; h.value = btn.value;\\n      this.appendChild(h);\\n    }\\n    this.querySelectorAll('button').forEach(function (b) { b.disabled = true; });\\n    document.getElementById('status').style.display = 'block';\\n  });\\n</script>\\n</body>\\n</html>\\n\";\n\nconst q = $input.first().json.query ?? {};\nconst esc = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n// (o sandbox do Code node não expõe `URL`, por isso validação via regex)\nconst httpUrl = (u) => (/^https?:\\/\\/[^\\s\"'<>]+$/i.test(String(u ?? '')) ? String(u) : '');\n\nconst resume = httpUrl(q.resume);\nif (!/^https?:\\/\\/[^/]+\\/webhook-waiting\\//i.test(resume)) {\n  return [{ json: { status: 400, html: '<h1>Link de revisão inválido ou expirado.</h1>' } }];\n}\n\nconst values = {\n  IMAGE_URL: httpUrl(q.img),\n  PROMPT: q.prompt,\n  BASE_PROMPT: q.base,\n  STYLE: q.style,\n  ITERATION: q.it,\n  RESUME_URL: resume,\n};\nconst html = TEMPLATE.replace(/{{(\\w+)}}/g, (m, k) => (k in values ? esc(values[k]) : m));\nreturn [{ json: { status: 200, html } }];\n"
+      },
+      "id": "8fb69c43-b190-52c4-b8f7-de631489b007",
+      "name": "Render Review Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseCode": "={{ $json.status }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "5a9fa481-07c2-5b06-b1d8-4c3b5f1258fe",
+      "name": "Respond: Review HTML",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "game-art/preview",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3ac0c9a1-928b-5848-8090-42e45c88b886",
+      "name": "Preview Image",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        400
+      ],
+      "webhookId": "1f0336ce-e521-5a45-bebc-3a27ed2b6dc8"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Só aceita \"<executionId>.png\" (evita path traversal).\n// Execução separada do pipeline: o nó Config não roda aqui, então a pasta é fixa (= Config.previewsRoot).\nconst PREVIEWS_ROOT = '/previews';\nconst f = String($input.first().json.query?.f ?? '');\nconst ok = /^\\d+\\.png$/.test(f);\nreturn [{ json: { ok, path: ok ? `${PREVIEWS_ROOT}/${f}` : '' } }];\n"
+      },
+      "id": "9017aaab-6316-5e14-852d-966c6174fc71",
+      "name": "Validate Preview Name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "df423c7c-8124-50cb-8380-b046f98f4e11",
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aa0534cf-fe19-5367-98d5-4f3a511b1451",
+      "name": "Valid Name?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.path }}",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "id": "4a40656e-e76f-58f2-8ca8-d1f7bf6fd0d0",
+      "name": "Read Preview",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1740,
+        340
+      ],
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dbbb0ba8-9de2-5142-b19e-35abcbabeb49",
+              "leftValue": "={{ !!$binary?.data }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3e50fce1-9742-5cb0-9c9b-1dc903cbbaa0",
+      "name": "Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1960,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "data",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "image/png"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "7abeb5e6-5139-5834-9442-286416ba11de",
+      "name": "Respond: Preview PNG",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Preview not found",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "b84b089c-78b9-5ac0-a774-f3c148d39454",
+      "name": "Respond: Preview 404",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2180,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "game-art/start",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "86a70fbe-c7c8-5372-a329-6ef949b66a46",
+      "name": "Start (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        760
+      ],
+      "webhookId": "b6997916-8888-54d1-8adf-c65386581797"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fe26f8cb-bf77-54e4-84f2-f5d713b5d46d",
+              "name": "nanoBananaUrl",
+              "value": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent",
+              "type": "string"
+            },
+            {
+              "id": "ee5dd165-43f3-5b1a-af44-e5ce296af938",
+              "name": "meshyCreateUrl",
+              "value": "http://localhost:5678/webhook/mock/meshy/image-to-3d",
+              "type": "string"
+            },
+            {
+              "id": "9fd43e7c-38c8-57f8-855b-e8542dd26a6a",
+              "name": "meshyStatusUrlPrefix",
+              "value": "http://localhost:5678/webhook/mock/meshy/status?task_id=",
+              "type": "string"
+            },
+            {
+              "id": "950fe01b-48b9-578e-aad6-63e29794c7bb",
+              "name": "pollIntervalSec",
+              "value": 15,
+              "type": "number"
+            },
+            {
+              "id": "a544306d-2ef5-5dc8-90aa-242056238a1e",
+              "name": "maxPollAttempts",
+              "value": 40,
+              "type": "number"
+            },
+            {
+              "id": "1c50a071-1a3b-535a-8c19-45ff29f6a75c",
+              "name": "hostRoot",
+              "value": "C:\\Assets",
+              "type": "string"
+            },
+            {
+              "id": "1e40e6e2-f270-50bc-b5cd-c5f168681507",
+              "name": "containerRoot",
+              "value": "/assets",
+              "type": "string"
+            },
+            {
+              "id": "cf6d3c80-904e-5bf3-bc47-b98b8c779eeb",
+              "name": "rembgUrl",
+              "value": "http://rembg:7000/api/remove",
+              "type": "string"
+            },
+            {
+              "id": "c8e8d25d-29f3-5725-a15a-83e3de8ea15e",
+              "name": "rembgModel",
+              "value": "isnet-general-use",
+              "type": "string"
+            },
+            {
+              "id": "3ab7d75b-905b-5e84-832d-ee9bf0c97f65",
+              "name": "previewsRoot",
+              "value": "/previews",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ccb01bda-6211-5f3c-b71c-6d034ea04933",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        420,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "715790eb-c05c-538f-8f39-54db7ab1d21a",
+              "name": "basePrompt",
+              "value": "={{ $('Start (Webhook)').first().json.body.basePrompt }}",
+              "type": "string"
+            },
+            {
+              "id": "4734c510-f9f4-5f7b-94f3-592087f7389d",
+              "name": "style",
+              "value": "={{ $('Start (Webhook)').first().json.body.style || 'Low Poly' }}",
+              "type": "string"
+            },
+            {
+              "id": "da9e1d0d-852f-5422-a8e7-4b86bf31a97a",
+              "name": "provider",
+              "value": "={{ $('Start (Webhook)').first().json.body.provider || 'OpenAI' }}",
+              "type": "string"
+            },
+            {
+              "id": "dceb0346-413a-5e7c-8f30-a85ff5c2b4ad",
+              "name": "outputFolder",
+              "value": "={{ $('Start (Webhook)').first().json.body.outputFolder }}",
+              "type": "string"
+            },
+            {
+              "id": "cfacde14-b8ca-5756-b747-ee906c27e626",
+              "name": "feedbackHistory",
+              "value": "={{ [] }}",
+              "type": "array"
+            },
+            {
+              "id": "5f61fe15-f8f2-5bf5-baac-7c92cd279cf1",
+              "name": "iteration",
+              "value": 1,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c181c757-0218-5ed7-b538-1c3a93bdaa78",
+      "name": "Init Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        640,
+        760
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bfeee02c-e914-56d1-a8b9-ceb76d8c2de6",
+      "name": "Context",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        860,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "2ffa1456-6826-5f75-b32f-26a4e2b82950",
+                    "leftValue": "={{ $json.provider }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "OpenAI"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "OpenAI"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a25dc0ac-913a-5c0a-bb66-25b3b06edfb1",
+                    "leftValue": "={{ $json.provider }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "Gemini"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Gemini"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": 0
+        }
+      },
+      "id": "9c659440-0d22-5de1-a90e-44bdc42f462c",
+      "name": "Switch Provider",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1080,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a senior Game Technical Artist and prompt engineer.\nConvert the user's asset idea (it may be written in Portuguese) into ONE production-ready English prompt for a text-to-image model. The generated image will be fed directly into an image-to-3D generator (Meshy / Tripo3D), so it must be a clean reference sheet of a single asset.\n\nMandatory rules:\n- Single isolated subject, fully inside the frame, centered, nothing cropped.\n- Strict FRONT view, orthographic-like camera at eye level, no perspective distortion. Characters in a neutral A-pose, arms slightly away from the body.\n- Pure solid white (#FFFFFF) or neutral light-gray seamless background. No floor, no environment, no props that are not part of the asset, no text, no watermark, no frame.\n- Soft, even, diffuse studio lighting. No cast shadows, no dramatic rim light, no bloom, no depth of field, no motion blur.\n- Clear readable silhouette and well-defined materials/colors.\n- Adapt to the target 3D style:\n  * Voxel: made of uniform cubic voxels, blocky Minecraft/MagicaVoxel look, flat colors per voxel, crisp grid edges.\n  * Low Poly: faceted low-polygon look, flat-shaded triangles, limited color palette, stylized game asset.\n  * Realista: photorealistic PBR materials, high-detail textures, physically plausible proportions, AAA game asset.\n- Apply EVERY item of the feedback history. If two items conflict, the most recent one wins.\n\nOutput ONLY the final prompt: one paragraph, at most 120 words, no quotes, no labels, no explanations.",
+              "role": "system"
+            },
+            {
+              "content": "={{ 'Asset idea: ' + $('Context').first().json.basePrompt + '\\n' +\n'Target 3D style: ' + $('Context').first().json.style + '\\n' +\n'Feedback history (oldest first):\\n' +\n($('Context').first().json.feedbackHistory.length\n  ? $('Context').first().json.feedbackHistory.map((f, i) => (i + 1) + '. ' + f).join('\\n')\n  : 'None (first iteration).') }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 400
+        }
+      },
+      "id": "4aee6716-557d-5658-a8ee-f0e73254ded9",
+      "name": "OpenAI: Build Prompt",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1300,
+        660
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ 'Asset idea: ' + $('Context').first().json.basePrompt + '\\n' +\n'Target 3D style: ' + $('Context').first().json.style + '\\n' +\n'Feedback history (oldest first):\\n' +\n($('Context').first().json.feedbackHistory.length\n  ? $('Context').first().json.feedbackHistory.map((f, i) => (i + 1) + '. ' + f).join('\\n')\n  : 'None (first iteration).') }}"
+            }
+          ]
+        },
+        "options": {
+          "systemMessage": "You are a senior Game Technical Artist and prompt engineer.\nConvert the user's asset idea (it may be written in Portuguese) into ONE production-ready English prompt for a text-to-image model. The generated image will be fed directly into an image-to-3D generator (Meshy / Tripo3D), so it must be a clean reference sheet of a single asset.\n\nMandatory rules:\n- Single isolated subject, fully inside the frame, centered, nothing cropped.\n- Strict FRONT view, orthographic-like camera at eye level, no perspective distortion. Characters in a neutral A-pose, arms slightly away from the body.\n- Pure solid white (#FFFFFF) or neutral light-gray seamless background. No floor, no environment, no props that are not part of the asset, no text, no watermark, no frame.\n- Soft, even, diffuse studio lighting. No cast shadows, no dramatic rim light, no bloom, no depth of field, no motion blur.\n- Clear readable silhouette and well-defined materials/colors.\n- Adapt to the target 3D style:\n  * Voxel: made of uniform cubic voxels, blocky Minecraft/MagicaVoxel look, flat colors per voxel, crisp grid edges.\n  * Low Poly: faceted low-polygon look, flat-shaded triangles, limited color palette, stylized game asset.\n  * Realista: photorealistic PBR materials, high-detail textures, physically plausible proportions, AAA game asset.\n- Apply EVERY item of the feedback history. If two items conflict, the most recent one wins.\n\nOutput ONLY the final prompt: one paragraph, at most 120 words, no quotes, no labels, no explanations.",
+          "temperature": 0.7,
+          "maxOutputTokens": 400
+        }
+      },
+      "id": "7429b8fd-8c45-5a56-b7d7-4133cd5d0d1a",
+      "name": "Gemini: Build Prompt",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        860
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4b8fa810-755e-5995-9353-aaf419c82d68",
+              "name": "imagePrompt",
+              "value": "={{ String($json.message?.content ?? $json.content?.parts?.map(p => p.text).join('') ?? $json.text ?? '').trim().replace(/^[\"'`\\s]+|[\"'`\\s]+$/g, '') }}",
+              "type": "string"
+            },
+            {
+              "id": "b4db4ff5-fd71-5fda-8c9f-c78fd85927fd",
+              "name": "negativePrompt",
+              "value": "background scenery, floor, cast shadows, text, watermark, cropped, multiple objects, perspective distortion, blur",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cc7eebab-45e0-5a65-9b5d-75c607931659",
+      "name": "Normalize Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1520,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.nanoBananaUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  contents: [{ role: 'user', parts: [{ text: $json.imagePrompt + '\\nAvoid: ' + $json.negativePrompt + '.' }] }],\n  generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '1:1' } }\n}) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "4ea6eb8b-e108-5f65-aa91-44b5bc1f108c",
+      "name": "NanoBanana: Generate 2D",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        760
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// A API do Gemini devolve a imagem em base64: candidates[0].content.parts[].inlineData\nconst r = $input.first().json;\nconst cand = r.candidates?.[0];\nconst part = cand?.content?.parts?.find((p) => p.inlineData?.data);\nif (!part) {\n  const reason = r.promptFeedback?.blockReason ?? cand?.finishReason ?? 'desconhecido';\n  const text = cand?.content?.parts?.map((p) => p.text).filter(Boolean).join(' ') ?? '';\n  // Sem ':' na mensagem: o n8n corta a mensagem de erro no primeiro dois-pontos.\n  const msg = `Nano Banana não retornou imagem (motivo ${reason}). ${text}`.replace(/:/g, ' -').trim();\n  throw new Error(msg.slice(0, 800));\n}\nreturn [{ json: { imageBase64: part.inlineData.data, mimeType: part.inlineData.mimeType ?? 'image/png' } }];\n"
+      },
+      "id": "bd499257-0b9a-5427-891d-213fb824ee18",
+      "name": "Extract Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "imageBase64",
+        "binaryPropertyName": "data",
+        "options": {
+          "dataIsBase64": true,
+          "mimeType": "={{ $json.mimeType }}",
+          "fileName": "={{ $execution.id + '.png' }}"
+        }
+      },
+      "id": "9aabf1eb-8d41-575d-a4ee-d1b69889218a",
+      "name": "Image to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2180,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Config').first().json.previewsRoot + '/' + $execution.id + '.png' }}",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "bf3b8dd9-75ea-5d5c-9198-8ff038bfce38",
+      "name": "Save Preview",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta o link da página de revisão. A imagem é servida pelo webhook \"Preview Image\".\n// A origem vem do próprio resumeUrl (WEBHOOK_URL), então funciona em qualquer host/porta.\nconst ctx = $('Context').first().json;\nconst imagePrompt = $('Normalize Prompt').first().json.imagePrompt;\nconst resumeUrl = $execution.resumeUrl;\nconst origin = resumeUrl.match(/^https?:\\/\\/[^/]+/i)[0];\nconst imageUrl = `${origin}/webhook/game-art/preview?f=${$execution.id}.png&v=${ctx.iteration}`;\n\nconst params = {\n  img: imageUrl,\n  prompt: imagePrompt,\n  base: ctx.basePrompt,\n  style: ctx.style,\n  it: String(ctx.iteration),\n  resume: resumeUrl,\n};\nconst qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v ?? '')}`).join('&');\nconst reviewUrl = `${origin}/webhook/game-art/review?${qs}`;\n\nreturn [{ json: { imageUrl, imagePrompt, iteration: ctx.iteration, reviewUrl } }];\n"
+      },
+      "id": "651d1913-7d07-5208-9c95-f0512bdeec10",
+      "name": "Build Review Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2620,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{ $json.reviewUrl }}",
+        "options": {
+          "responseCode": 303
+        }
+      },
+      "id": "1cff4df3-20b8-544a-a6f3-c83db8d75c0b",
+      "name": "Respond: Open Review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        420,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "limitWaitTime": true,
+        "limitType": "afterTimeInterval",
+        "resumeAmount": 24,
+        "resumeUnit": "hours",
+        "options": {}
+      },
+      "id": "b980b6fc-8646-5d88-b16f-f1f0b9d2b9ce",
+      "name": "Wait for Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        1200
+      ],
+      "webhookId": "c277f1d7-639b-5c4a-b86e-8fb1717dd797"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "65d84c25-babb-5466-91a5-a28fab540598",
+                    "leftValue": "={{ $json.body?.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "approve"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Aprovar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d6767f94-a20a-5934-89b1-c3031f0dbf3b",
+                    "leftValue": "={{ $json.body?.action }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "modify"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Modificar"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cdadc300-3ee5-5b3f-bde9-707dfbec106d",
+      "name": "Decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        860,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Acumula o feedback e volta para o \"Context\" (loop).\nconst ctx = $('Context').first().json;\nconst feedback = String($input.first().json.body?.feedback ?? '').trim();\nconst history = [...(ctx.feedbackHistory ?? [])];\nif (feedback) history.push(feedback);\nreturn [{ json: { ...ctx, feedbackHistory: history, iteration: (ctx.iteration ?? 1) + 1 } }];\n"
+      },
+      "id": "1c7a610d-2a12-5435-b614-333722dbf321",
+      "name": "Apply Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        1320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEMPLATE = \"<!DOCTYPE html>\\n<html lang=\\\"pt-BR\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\">\\n<title>Asset aprovado</title>\\n<style>\\n  :root { --bg:#0f1117; --card:#171a23; --line:#2a2f3d; --text:#e7e9ee; --muted:#9aa3b2; --ok:#22c55e; }\\n  * { box-sizing:border-box; }\\n  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px 16px;\\n         background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,\\\"Segoe UI\\\",Roboto,sans-serif; }\\n  .card { max-width:560px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; text-align:center; }\\n  img { max-width:220px; border-radius:8px; background:#fff; }\\n  h1 { font-size:22px; margin:16px 0 6px; color:var(--ok); }\\n  p { color:var(--muted); margin:6px 0; }\\n  code { color:var(--text); background:#0c0e14; border:1px solid var(--line); border-radius:6px; padding:2px 6px; word-break:break-all; }\\n  .spin { width:28px; height:28px; margin:18px auto 0; border:3px solid var(--line); border-top-color:var(--ok);\\n          border-radius:50%; animation:s 1s linear infinite; }\\n  @keyframes s { to { transform:rotate(360deg); } }\\n</style>\\n</head>\\n<body>\\n  <div class=\\\"card\\\">\\n    <img src=\\\"{{IMAGE_URL}}\\\" alt=\\\"Imagem aprovada\\\">\\n    <h1>✔ Aprovado na iteração #{{ITERATION}}</h1>\\n    <p>Removendo o fundo e gerando o modelo 3D (<b>{{STYLE}}</b>). Isso leva alguns minutos.</p>\\n    <p>O <code>.glb</code> e o <code>.png</code> sem fundo serão salvos em <code>{{OUTPUT_FOLDER}}</code>.</p>\\n    <p>Você pode fechar esta aba — acompanhe em <b>Executions</b> no n8n.</p>\\n    <div class=\\\"spin\\\"></div>\\n  </div>\\n</body>\\n</html>\\n\";\nconst esc = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst ctx = $('Context').first().json;\nconst values = {\n  IMAGE_URL: $('Build Review Link').first().json.imageUrl,\n  STYLE: ctx.style,\n  OUTPUT_FOLDER: ctx.outputFolder,\n  ITERATION: ctx.iteration,\n};\nreturn [{ json: { html: TEMPLATE.replace(/{{(\\w+)}}/g, (m, k) => (k in values ? esc(values[k]) : m)) } }];\n"
+      },
+      "id": "be0da122-ec7d-5fa5-b2c8-67d349d32828",
+      "name": "Render Approved Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "id": "8fdf1e78-a056-546b-9cb0-3724a4aa10df",
+      "name": "Respond: Approved",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recupera o binário da imagem aprovada (última iteração) salvo nos dados da execução.\nreturn [{ json: {}, binary: $('Image to File').first().binary }];\n"
+      },
+      "id": "4e92e897-8e17-524d-b7b1-ca1846a20fb1",
+      "name": "Restore Approved Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.rembgUrl }}",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "={{ $('Config').first().json.rembgModel }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "id": "4ce5e748-4062-5450-9980-5613d11ece9f",
+      "name": "Remove Background",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        1100
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "data",
+        "destinationKey": "imageBase64",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "id": "2ae4e689-8370-5e10-af34-26353e16ea9f",
+      "name": "PNG to Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1960,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.meshyCreateUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const s = $('Context').first().json.style; return JSON.stringify({\n  image_url: 'data:image/png;base64,' + $json.imageBase64,\n  ai_model: 'latest',\n  topology: s === 'Realista' ? 'quad' : 'triangle',\n  target_polycount: { 'Voxel': 8000, 'Low Poly': 3000, 'Realista': 60000 }[s] ?? 10000,\n  should_remesh: true,\n  should_texture: true,\n  enable_pbr: s === 'Realista',\n  symmetry_mode: 'auto'\n}); })() }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "8fd1ae3c-f27b-5063-8837-936eb1c1ca5b",
+      "name": "Meshy: Create Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2180,
+        1100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4f63e020-e1db-5f1a-be12-72336a588985",
+              "name": "taskId",
+              "value": "={{ $json.result ?? $json.task_id ?? $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "df139c7e-f45b-55c0-aecc-ca1231adde4d",
+      "name": "Task Info",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2400,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $('Config').first().json.pollIntervalSec }}",
+        "unit": "seconds"
+      },
+      "id": "5c5a07a5-31e2-5a4a-9ef8-a88f3a6a4835",
+      "name": "Wait 15s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        420,
+        1640
+      ],
+      "webhookId": "031a871a-b438-5924-a94a-d3551d8630d8"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.meshyStatusUrlPrefix + $('Task Info').first().json.taskId }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "c8b4f649-20f3-59fa-80cc-793eb2039b2a",
+      "name": "Meshy: Get Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        1640
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3e453183-14e1-53cd-88d8-14ca194eb377",
+                    "leftValue": "={{ $json.status }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "SUCCEEDED"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Pronto"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "13722893-57af-5e4d-b57c-52bafd3826c1",
+                    "leftValue": "={{ $json.status }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "FAILED"
+                  },
+                  {
+                    "id": "7a58062a-4d3b-51ad-aac7-4048b3269fe9",
+                    "leftValue": "={{ $json.status }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "CANCELED"
+                  },
+                  {
+                    "id": "e325fb33-9f5b-5c0f-b1f1-38919afbdd54",
+                    "leftValue": "={{ $json.status }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "EXPIRED"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Falhou"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Em andamento"
+        }
+      },
+      "id": "07e9108a-c557-5c75-9086-ded53c560c9a",
+      "name": "Status",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        860,
+        1640
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a032c718-1c0e-5c46-afe9-83154c120849",
+              "leftValue": "={{ $runIndex + 1 }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              },
+              "rightValue": "={{ $('Config').first().json.maxPollAttempts }}"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3c19c37e-afca-5739-9952-485c7da1854c",
+      "name": "Keep Polling?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1080,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ 'Meshy task ' + $('Task Info').first().json.taskId + ' terminou com status ' + $json.status + ': ' + ($json.task_error?.message ?? '') }}"
+      },
+      "id": "ff35dc37-3f42-5a22-b361-6ef8c773a2f4",
+      "name": "Stop: Meshy Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1080,
+        1640
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ 'Meshy task ' + $('Task Info').first().json.taskId + ' não terminou após ' + $('Config').first().json.maxPollAttempts + ' tentativas.' }}"
+      },
+      "id": "9c82604b-daa0-5163-b8a5-8749158afa6c",
+      "name": "Stop: Polling Timeout",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.model_urls.glb }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "id": "f8aca7a0-f69b-5d4a-8cc3-ff6c32619ca0",
+      "name": "Download GLB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        1540
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Converte o caminho digitado no form (host) para o caminho dentro do container.\n//   C:\\Assets\\herois  ->  /assets/herois     (hostRoot -> containerRoot, ver nó Config)\n//   /assets/herois    ->  /assets/herois\n//   herois            ->  /assets/herois     (relativo = dentro do containerRoot)\nconst cfg = $('Config').first().json;\nconst ctx = $('Context').first().json;\nconst norm = (p) => String(p ?? '').trim().replace(/\\\\/g, '/').replace(/\\/+$/, '');\nconst under = (p, root) => root && (p.toLowerCase() === root.toLowerCase() || p.toLowerCase().startsWith(root.toLowerCase() + '/'));\n\nconst containerRoot = norm(cfg.containerRoot);\nconst hostRoot = norm(cfg.hostRoot);\nlet folder = norm(ctx.outputFolder);\n\nif (!folder) folder = containerRoot;\nelse if (under(folder, containerRoot)) { /* já é caminho do container */ }\nelse if (under(folder, hostRoot)) folder = containerRoot + folder.slice(hostRoot.length);\nelse if (!folder.startsWith('/') && !/^[a-z]:/i.test(folder)) folder = `${containerRoot}/${folder}`;\nelse throw new Error(`A pasta \"${ctx.outputFolder}\" está fora da pasta montada. Use algo dentro de \"${cfg.hostRoot}\" (host) ou \"${containerRoot}\" (container).`);\n\nif (folder.split('/').includes('..')) throw new Error('Caminho inválido: \"..\" não é permitido.');\n\nconst slug = (s, n) => String(s).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, n) || 'asset';\nconst stamp = $now.toFormat('yyyyMMdd-HHmmss'); // fuso = GENERIC_TIMEZONE\nconst base = `${slug(ctx.basePrompt, 40)}_${slug(ctx.style, 12)}_${stamp}`;\n\n// Fallback caso a subpasta não exista (o nó de escrita do n8n não cria pastas):\n// salva na raiz montada, prefixando o nome da subpasta.\nconst sub = folder.slice(containerRoot.length).replace(/^\\//, '');\nconst prefix = sub ? slug(sub, 40) + '__' : '';\n\n// 2 itens: modelo 3D (.glb) + imagem 2D sem fundo (.png)\nconst files = [\n  { kind: 'glb', binary: $input.first().binary },\n  { kind: 'png', binary: $('Remove Background').first().binary },\n];\nreturn files.map(({ kind, binary }) => {\n  const fileName = `${base}.${kind}`;\n  return { json: { kind, folder, fileName, filePath: `${folder}/${fileName}`, fallbackPath: `${containerRoot}/${prefix}${fileName}` }, binary };\n});\n"
+      },
+      "id": "4a8ea6eb-b17d-5770-8477-c894d9e89ebc",
+      "name": "Build File Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        1540
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.filePath }}",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "cde00464-e87b-59ad-9ee4-76c0df89f1ac",
+      "name": "Save Files to Disk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1740,
+        1540
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// A pasta de destino não existe dentro do container: salva na raiz montada para não perder o modelo.\nreturn $('Build File Path').all().map((src) => ({\n  json: { ...src.json, filePath: src.json.fallbackPath, warning: `Pasta ${src.json.folder} não existe; arquivos salvos na raiz.` },\n  binary: src.binary,\n}));\n"
+      },
+      "id": "4cae0391-3a0b-5f72-99e6-4d8bf86f7c50",
+      "name": "Use Root Folder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        1740
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.filePath }}",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "b220c465-38fc-50b3-a06d-8f06bee744b0",
+      "name": "Save Files to Root",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        1740
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resumo da execução (um único item).\nreturn [{ json: {\n  savedTo: $input.all().map((i) => i.json.fileName),\n  warning: $('Use Root Folder').isExecuted ? $('Use Root Folder').first().json.warning : '',\n  taskId: $('Task Info').first().json.taskId,\n  iterations: $('Context').first().json.iteration,\n  imagePrompt: $('Build Review Link').first().json.imagePrompt,\n} }];\n"
+      },
+      "id": "88be7d96-6a8b-543c-a9d2-ce052962426e",
+      "name": "Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        1540
+      ]
+    }
+  ],
+  "connections": {
+    "Form: New Asset": {
+      "main": [
+        [
+          {
+            "node": "Start Pipeline Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Pipeline Run": {
+      "main": [
+        [
+          {
+            "node": "Pipeline Started?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline Started?": {
+      "main": [
+        [
+          {
+            "node": "Form: Open Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Form: Start Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Page": {
+      "main": [
+        [
+          {
+            "node": "Render Review Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Review Page": {
+      "main": [
+        [
+          {
+            "node": "Respond: Review HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preview Image": {
+      "main": [
+        [
+          {
+            "node": "Validate Preview Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Preview Name": {
+      "main": [
+        [
+          {
+            "node": "Valid Name?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Name?": {
+      "main": [
+        [
+          {
+            "node": "Read Preview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Preview 404",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Preview": {
+      "main": [
+        [
+          {
+            "node": "Found?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Preview 404",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found?": {
+      "main": [
+        [
+          {
+            "node": "Respond: Preview PNG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Preview 404",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Init Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Context": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context": {
+      "main": [
+        [
+          {
+            "node": "Switch Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Provider": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini: Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Normalize Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Normalize Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Prompt": {
+      "main": [
+        [
+          {
+            "node": "NanoBanana: Generate 2D",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NanoBanana: Generate 2D": {
+      "main": [
+        [
+          {
+            "node": "Extract Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Image": {
+      "main": [
+        [
+          {
+            "node": "Image to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image to File": {
+      "main": [
+        [
+          {
+            "node": "Save Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Preview": {
+      "main": [
+        [
+          {
+            "node": "Build Review Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Link": {
+      "main": [
+        [
+          {
+            "node": "Respond: Open Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Open Review": {
+      "main": [
+        [
+          {
+            "node": "Wait for Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Review": {
+      "main": [
+        [
+          {
+            "node": "Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision": {
+      "main": [
+        [
+          {
+            "node": "Render Approved Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Apply Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Feedback": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Approved Page": {
+      "main": [
+        [
+          {
+            "node": "Respond: Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Approved": {
+      "main": [
+        [
+          {
+            "node": "Restore Approved Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Approved Image": {
+      "main": [
+        [
+          {
+            "node": "Remove Background",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Background": {
+      "main": [
+        [
+          {
+            "node": "PNG to Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PNG to Base64": {
+      "main": [
+        [
+          {
+            "node": "Meshy: Create Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meshy: Create Task": {
+      "main": [
+        [
+          {
+            "node": "Task Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task Info": {
+      "main": [
+        [
+          {
+            "node": "Wait 15s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 15s": {
+      "main": [
+        [
+          {
+            "node": "Meshy: Get Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meshy: Get Status": {
+      "main": [
+        [
+          {
+            "node": "Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status": {
+      "main": [
+        [
+          {
+            "node": "Download GLB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop: Meshy Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Keep Polling?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Polling?": {
+      "main": [
+        [
+          {
+            "node": "Wait 15s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop: Polling Timeout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download GLB": {
+      "main": [
+        [
+          {
+            "node": "Build File Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build File Path": {
+      "main": [
+        [
+          {
+            "node": "Save Files to Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Files to Disk": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Use Root Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Root Folder": {
+      "main": [
+        [
+          {
+            "node": "Save Files to Root",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Files to Root": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "id": "gameArtPipeline1",
+  "active": false,
+  "tags": []
+}

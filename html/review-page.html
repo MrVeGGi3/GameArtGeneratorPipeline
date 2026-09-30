@@ -3,7 +3,7 @@
   Página de revisão (Human-in-the-Loop).
   Template renderizado pelo nó Code "Render Review Page" do workflow "Game Art Pipeline".
   Os tokens {{...}} são substituídos (já com HTML-escape) pelo Code node:
-    {{IMAGE_URL}}  {{PROMPT}}  {{BASE_PROMPT}}  {{STYLE}}  {{ITERATION}}  {{RESUME_URL}}
+    {{IMAGE_URL}}  {{PROMPT}}  {{BASE_PROMPT}}  {{STYLE}}  {{MODE}}  {{APPROVE_HINT}}  {{ITERATION}}  {{RESUME_URL}}
   {{RESUME_URL}} = $execution.resumeUrl do nó Wait "Wait for Review" (já inclui a assinatura).
   O form faz POST (application/x-www-form-urlencoded) com os campos: feedback, action=approve|modify.
 -->
@@ -55,6 +55,7 @@
     <div class="badges">
       <span class="badge">Iteração <b>#{{ITERATION}}</b></span>
       <span class="badge">Estilo 3D <b>{{STYLE}}</b></span>
+      <span class="badge">Saída <b>{{MODE}}</b></span>
     </div>
   </header>
 
@@ -68,7 +69,7 @@
       <form id="review" method="POST" action="{{RESUME_URL}}">
         <label for="feedback">Feedback</label>
         <textarea id="feedback" name="feedback" placeholder="Ex.: deixe a armadura mais escura, remova a capa, vista 100% frontal..."></textarea>
-        <p class="hint"><b>Aprovar</b> envia esta imagem para o gerador 3D. <b>Modificar</b> gera uma nova imagem aplicando o feedback.</p>
+        <p class="hint"><b>Aprovar</b> {{APPROVE_HINT}} <b>Modificar</b> gera uma nova imagem aplicando o feedback.</p>
         <div class="actions">
           <button class="approve" type="submit" name="action" value="approve">✔ Aprovar</button>
           <button class="modify" type="submit" name="action" value="modify">↻ Modificar</button>

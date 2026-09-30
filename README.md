@@ -1,10 +1,15 @@
 # Game Art Generator Pipeline (n8n)
 
 Pipeline local no n8n: **ideia → prompt técnico (OpenAI/Gemini) → imagem 2D (Nano Banana, via API do Gemini) → revisão humana
-com loop de feedback → remoção de fundo (rembg self-hosted) → image-to-3D (Meshy) com polling →
-`.glb` + `.png` sem fundo salvos no disco**.
+com loop de feedback → remoção de fundo (rembg self-hosted) → [opcional] image-to-3D (Meshy) com polling →
+`.png` sem fundo (+ `.glb`) salvos no disco**.
 
-Custo operacional: **≈ US$ 0,72 por asset** e **US$ 20/mês fixos** (Meshy Pro). Veja [Custo operacional](#custo-operacional).
+No form, o campo **Tipo de Geração** escolhe a saída:
+
+- **Apenas 2D**: depois de aprovar, remove o fundo e salva só o `.png`. Não usa o Meshy.
+- **2D + 3D**: remove o fundo, gera o modelo no Meshy e salva o `.glb` e o `.png`.
+
+Custo operacional: **≈ US$ 0,12 por asset 2D** (sem custo fixo) ou **≈ US$ 0,72 por asset 3D** + US$ 20/mês (Meshy Pro). Veja [Custo operacional](#custo-operacional).
 
 Testado no n8n **2.27.4** (Docker).
 
@@ -37,13 +42,16 @@ Start (Webhook) ─► Config ─► Init Context ─► Context ◄────
                                                                      Aprovar
                                                                         ▼
    Render Approved Page ─► Respond: Approved ─► Restore Approved Image ─► Remove Background (rembg)
-                                                                        ▼
+                                                                                ▼
+                                                     Generate 3D? ─ Apenas 2D ─► Build File Path (só .png)
+                                                          │ 2D + 3D
+                                                          ▼
                                   Task Info ◄─ Meshy: Create Task ◄─ PNG to Base64
                                       ▼
                  ┌──► Wait 15s ─► Meshy: Get Status ─► Status ─ SUCCEEDED ─► Download GLB
                  │                                        │ FAILED ─► Stop     ▼
                  └──── Keep Polling? ◄── em andamento ────┘       Build File Path ─► Save Files ─► Done
-                                                                   (.glb + .png)
+                                                                   (.glb + .png ou só .png)
 
 Review Page (Webhook GET) ─► Render Review Page (Code) ─► Respond: Review HTML
 Preview Image (Webhook GET) ─► Validate Preview Name ─► Read Preview ─► Respond: Preview PNG | 404
@@ -113,30 +121,35 @@ Preços de 30/09/2026, em USD, sem IOF. Detalhes, fontes e contas em [docs/ORCAM
 | Ação | O que é cobrado | Custo |
 |---|---|---|
 | Gerar / **Modificar** | 1 prompt no LLM + 1 imagem Nano Banana (`gemini-2.5-flash-image`) | ≈ US$ 0,04 |
-| **Aprovar** | rembg (local, grátis) + 1 task Meshy com textura (30 créditos) | US$ 0,60 no Pro · US$ 0,30 no Ultra |
+| **Aprovar** (Apenas 2D) | rembg (local, grátis) | US$ 0 |
+| **Aprovar** (2D + 3D) | rembg + 1 task Meshy com textura (30 créditos) | US$ 0,60 no Pro · US$ 0,30 no Ultra |
 
 **Por asset** (premissa: 3 imagens até aprovar):
 
-| Item | Custo |
-|---|---|
-| LLM (`gpt-4.1-mini`, 3 chamadas) | US$ 0,0015 |
-| Imagens 2D (3 × US$ 0,039) | US$ 0,117 |
-| Remoção de fundo (rembg self-hosted) | US$ 0 |
-| Meshy image-to-3D com textura (plano Pro) | US$ 0,60 |
-| **Total** | **≈ US$ 0,72** (≈ US$ 0,42 no plano Ultra) |
+| Item | Apenas 2D | 2D + 3D |
+|---|---|---|
+| LLM (`gpt-4.1-mini`, 3 chamadas) | US$ 0,0015 | US$ 0,0015 |
+| Imagens 2D (3 × US$ 0,039) | US$ 0,117 | US$ 0,117 |
+| Remoção de fundo (rembg self-hosted) | US$ 0 | US$ 0 |
+| Meshy image-to-3D com textura (plano Pro) | — | US$ 0,60 |
+| **Total** | **≈ US$ 0,12** | **≈ US$ 0,72** (≈ US$ 0,42 no Ultra) |
 
 **Por mês:**
 
 | Cenário | Assets/mês | Total/mês |
 |---|---|---|
-| Parado (só manter ativo) | 0 | **US$ 20** (assinatura Meshy Pro) |
-| Hobby | 10 | ≈ US$ 21 |
-| Indie (limite do Pro: 1.000 créditos) | 33 | ≈ US$ 24 |
-| Estúdio (Meshy Ultra) | 300 | ≈ US$ 136 + VPS € 5,49 |
+| Só 2D | 100 | **≈ US$ 12**, sem custo fixo |
+| Parado com 3D disponível | 0 | **US$ 20** (assinatura Meshy Pro) |
+| Hobby 3D | 10 | ≈ US$ 21 |
+| Indie 3D (limite do Pro: 1.000 créditos) | 33 | ≈ US$ 24 |
+| Estúdio 3D (Meshy Ultra) | 300 | ≈ US$ 136 + VPS € 5,49 |
+
+Os cenários se somam. Por exemplo, 33 assets 3D + 100 assets só 2D ≈ US$ 24 + US$ 12 = US$ 36/mês.
 
 **O que você precisa saber:**
 
-- **Custo fixo:** só a assinatura Meshy **Pro (US$ 20/mês)**, que é o menor plano com API; o Free não gera chave. Todo o resto é por uso.
+- **Custo fixo:** só existe se você usar o 3D. É a assinatura Meshy **Pro (US$ 20/mês)**, o menor plano com API
+  (o Free não gera chave). Usando só **Apenas 2D**, o custo é 100% por uso e dá para ficar sem a assinatura.
 - **Custo zero:** n8n self-hosted e rembg. A infraestrutura também sai de graça no PC local (só energia).
   Um VPS equivalente (Hetzner CX23, 4 GB) custa € 5,49/mês.
 - **Onde vai o dinheiro:** o Meshy é **~83%** do custo por asset. Cada "Modificar" custa ~15× menos que um
@@ -219,13 +232,13 @@ Mesmo com o mock, o nó exige uma credencial Gemini selecionada, mas uma chave q
 
 1. Clique em **Publish** nos dois workflows (mock e pipeline).
 2. Abra `http://localhost:5679/form/game-art`.
-3. Preencha o form. Em **Caminho da Pasta Local**, use `C:\Assets\personagens` (convertido para
+3. Preencha o form. Em **Tipo de Geração**, escolha **Apenas 2D** ou **2D + 3D**. Em **Caminho da Pasta Local**, use `C:\Assets\personagens` (convertido para
    `/assets/personagens`), `/assets/personagens` ou `personagens` (caminho relativo).
 
 > O nó de escrita do n8n **não cria pastas**. Crie a subpasta no host antes. Se ela não existir, os arquivos
 > não se perdem: são salvos na raiz (`/assets/<subpasta>__<arquivo>`) e o nó **Done** avisa em `warning`.
 
-Arquivos gerados: `<prompt-slug>_<estilo>_<AAAAMMDD-HHmmss>.glb` e `.png` (imagem 2D sem fundo).
+Arquivos gerados: `<prompt-slug>_<estilo>_<AAAAMMDD-HHmmss>.png` (imagem 2D sem fundo) e, no modo **2D + 3D**, o `.glb` com o mesmo nome.
 
 ## Editar o HTML
 
@@ -247,7 +260,8 @@ no formato Gemini:
 - resposta sem imagem → erro claro no **Extract Image** (`motivo …`);
 - API real do Google com chave falsa → `API key not valid`, o que confirma URL, modelo e autenticação;
 - **Modificar** com feedback → 303 → nova página (iteração #2, feedback aplicado ao prompt);
-- **Aprovar** → página "Aprovado" → rembg real (PNG RGBA, fundo 97% transparente) → Meshy mock recebe o data URI;
+- **Apenas 2D**: Aprovar → rembg → só o `.png` salvo, em segundos; nenhum nó do Meshy executa (`taskId: null` no **Done**);
+- **2D + 3D**: Aprovar → página "Aprovado" → rembg real (PNG RGBA, fundo 97% transparente) → Meshy mock recebe o data URI;
 - 3 polls (IN_PROGRESS 43% → 86% → SUCCEEDED);
 - `.glb` válido (glTF binary v2) + `.png` RGBA salvos em `/assets/props/`, e fallback para a raiz quando a subpasta não existia.
 

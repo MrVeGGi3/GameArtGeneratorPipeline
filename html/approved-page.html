@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   Página exibida após "Aprovar". Renderizada pelo nó Code "Render Approved Page".
-  Tokens: {{IMAGE_URL}} {{STYLE}} {{OUTPUT_FOLDER}} {{ITERATION}}
+  Tokens: {{IMAGE_URL}} {{OUTPUT_FOLDER}} {{ITERATION}} {{WORK}} {{FILES}}
 -->
 <html lang="pt-BR">
 <head>
@@ -27,8 +27,8 @@
   <div class="card">
     <img src="{{IMAGE_URL}}" alt="Imagem aprovada">
     <h1>✔ Aprovado na iteração #{{ITERATION}}</h1>
-    <p>Removendo o fundo e gerando o modelo 3D (<b>{{STYLE}}</b>). Isso leva alguns minutos.</p>
-    <p>O <code>.glb</code> e o <code>.png</code> sem fundo serão salvos em <code>{{OUTPUT_FOLDER}}</code>.</p>
+    <p>{{WORK}}</p>
+    <p>{{FILES}} <code>{{OUTPUT_FOLDER}}</code>.</p>
     <p>Você pode fechar esta aba — acompanhe em <b>Executions</b> no n8n.</p>
     <div class="spin"></div>
   </div>

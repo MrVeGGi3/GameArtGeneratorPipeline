@@ -132,6 +132,10 @@ class Graph:
         }
 
 
+# Opções do campo "Tipo de Geração" do form.
+MODE_3D = "2D + 3D"
+MODE_2D = "Apenas 2D"
+
 # ---------------------------------------------------------------------------
 # Textos do LLM
 # ---------------------------------------------------------------------------
@@ -183,7 +187,7 @@ def build_pipeline():
                "(Webhook `game-art/review`), que faz POST para `$execution.resumeUrl` do nó **Wait for Review**. "
                "*Modificar* volta ao **Context** com o feedback acumulado; *Aprovar* segue para o 3D.", 3),
         sticky("Note: 3D", [100, 1440], 2700, 520,
-               "## 4b · Remoção de fundo (rembg) → 5 · Meshy image-to-3D (polling) → 6 · Download + Salvar\nApós aprovar: baixa a imagem, remove o fundo no rembg e envia o PNG (data URI base64) ao Meshy. Wait 15s ↔ Get Status até "
+               "## 4b · Remoção de fundo (rembg) → 5 · Meshy image-to-3D (polling) → 6 · Download + Salvar\nApós aprovar: remove o fundo no rembg. **Apenas 2D** → salva só o PNG. **2D + 3D** → envia o PNG (data URI base64) ao Meshy. Wait 15s ↔ Get Status até "
                "`SUCCEEDED` (máx. `maxPollAttempts`). O caminho do form é convertido para o caminho do container "
                "(`hostRoot` → `containerRoot`).", 5),
         sticky("Note: Review", [900, 60], 1100, 620,
@@ -194,10 +198,13 @@ def build_pipeline():
     # ---- 1. Form ----------------------------------------------------------
     form = g.add(node("Form: New Asset", "n8n-nodes-base.formTrigger", 2.2, [X(0), 200], {
         "formTitle": "Game Art Generator",
-        "formDescription": "Descreva o asset. Você revisará a imagem 2D antes de gerar o modelo 3D (.glb).",
+        "formDescription": "Descreva o asset. Você revisará a imagem 2D antes de salvar o PNG sem fundo e, "
+                           "se escolher, gerar o modelo 3D (.glb).",
         "formFields": {"values": [
             {"fieldLabel": "Prompt Base", "fieldType": "textarea", "requiredField": True,
              "placeholder": "Ex.: cavaleiro anão com machado de runas"},
+            {"fieldLabel": "Tipo de Geração", "fieldType": "dropdown", "requiredField": True,
+             "fieldOptions": {"values": [{"option": MODE_3D}, {"option": MODE_2D}]}},
             {"fieldLabel": "Caminho da Pasta Local", "requiredField": True,
              "placeholder": "C:\\Assets\\personagens  (ou /assets/personagens)"},
             {"fieldLabel": "Estilo 3D", "fieldType": "dropdown", "requiredField": True,
@@ -215,7 +222,7 @@ def build_pipeline():
         "sendBody": True,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ basePrompt: $json['Prompt Base'], outputFolder: $json['Caminho da Pasta Local'], "
-                    "style: $json['Estilo 3D'], provider: $json['Provedor LLM'] }) }}",
+                    "style: $json['Estilo 3D'], provider: $json['Provedor LLM'], mode: $json['Tipo de Geração'] }) }}",
         "options": {
             "redirect": {"redirect": {"followRedirects": False}},
             "response": {"response": {"fullResponse": True, "neverError": True}},
@@ -266,6 +273,10 @@ const values = {{
   PROMPT: q.prompt,
   BASE_PROMPT: q.base,
   STYLE: q.style,
+  MODE: q.mode || '{MODE_3D}',
+  APPROVE_HINT: q.mode === '{MODE_2D}'
+    ? 'remove o fundo e salva o PNG final (sem 3D).'
+    : 'remove o fundo e envia a imagem para o gerador 3D.',
   ITERATION: q.it,
   RESUME_URL: resume,
 }};
@@ -361,6 +372,7 @@ return [{ json: { ok, path: ok ? `${PREVIEWS_ROOT}/${f}` : '' } }];
     init_ctx = g.add(set_node("Init Context", [X(2), Y2], [
         ("basePrompt", "={{ $('Start (Webhook)').first().json.body.basePrompt }}", "string"),
         ("style", "={{ $('Start (Webhook)').first().json.body.style || 'Low Poly' }}", "string"),
+        ("mode", "={{ $('Start (Webhook)').first().json.body.mode || '%s' }}" % MODE_3D, "string"),
         ("provider", "={{ $('Start (Webhook)').first().json.body.provider || 'OpenAI' }}", "string"),
         ("outputFolder", "={{ $('Start (Webhook)').first().json.body.outputFolder }}", "string"),
         ("feedbackHistory", "={{ [] }}", "array"),
@@ -458,6 +470,7 @@ const params = {
   prompt: imagePrompt,
   base: ctx.basePrompt,
   style: ctx.style,
+  mode: ctx.mode,
   it: String(ctx.iteration),
   resume: resumeUrl,
 };
@@ -505,9 +518,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({{ '&': '&amp;', 
 const ctx = $('Context').first().json;
 const values = {{
   IMAGE_URL: $('Build Review Link').first().json.imageUrl,
-  STYLE: ctx.style,
   OUTPUT_FOLDER: ctx.outputFolder,
   ITERATION: ctx.iteration,
+  WORK: ctx.mode === '{MODE_2D}'
+    ? 'Removendo o fundo da imagem. Isso leva poucos segundos.'
+    : `Removendo o fundo e gerando o modelo 3D (${{ctx.style}}). Isso leva alguns minutos.`,
+  FILES: ctx.mode === '{MODE_2D}' ? 'O .png sem fundo será salvo em' : 'O .glb e o .png sem fundo serão salvos em',
 }};
 return [{{ json: {{ html: TEMPLATE.replace(/{{{{(\\w+)}}}}/g, (m, k) => (k in values ? esc(values[k]) : m)) }} }}];
 """))
@@ -531,7 +547,12 @@ return [{ json: {}, binary: $('Image to File').first().binary }];
                     # 1ª chamada baixa o modelo (~170 MB) e pode demorar.
                     "timeout": 600000},
     }, retryOnFail=True, maxTries=2, waitBetweenTries=5000))
-    to_b64 = g.add(node("PNG to Base64", "n8n-nodes-base.extractFromFile", 1.1, [X(8), Y3 - 100], {
+    want_3d = g.add(node("Generate 3D?", "n8n-nodes-base.if", 2.2, [X(8), Y3 - 100], {
+        "conditions": {**conditions(cond("mode:3d", "={{ $('Context').first().json.mode }}", "string", "notEquals",
+                                         MODE_2D)), "combinator": "and"},
+        "options": {},
+    }))
+    to_b64 = g.add(node("PNG to Base64", "n8n-nodes-base.extractFromFile", 1.1, [X(9), Y3 - 100], {
         "operation": "binaryToPropery",
         "binaryPropertyName": "data",
         "destinationKey": "imageBase64",
@@ -539,7 +560,7 @@ return [{ json: {}, binary: $('Image to File').first().binary }];
     }))
 
     # ---- 5. Meshy + polling ---------------------------------------------
-    meshy_create = g.add(node("Meshy: Create Task", "n8n-nodes-base.httpRequest", 4.2, [X(9), Y3 - 100], {
+    meshy_create = g.add(node("Meshy: Create Task", "n8n-nodes-base.httpRequest", 4.2, [X(10), Y3 - 100], {
         "method": "POST",
         "url": "={{ $('Config').first().json.meshyCreateUrl }}",
         "sendBody": True,
@@ -556,7 +577,7 @@ return [{ json: {}, binary: $('Image to File').first().binary }];
                     "}); })() }}",
         "options": {"timeout": 60000},
     }, retryOnFail=True, maxTries=3, waitBetweenTries=3000))
-    task = g.add(set_node("Task Info", [X(10), Y3 - 100], [
+    task = g.add(set_node("Task Info", [X(11), Y3 - 100], [
         ("taskId", "={{ $json.result ?? $json.task_id ?? $json.id }}", "string"),
     ]))
     wait_poll = g.add(node("Wait 15s", "n8n-nodes-base.wait", 1.1, [X(1), Y4], {
@@ -629,11 +650,9 @@ const base = `${slug(ctx.basePrompt, 40)}_${slug(ctx.style, 12)}_${stamp}`;
 const sub = folder.slice(containerRoot.length).replace(/^\//, '');
 const prefix = sub ? slug(sub, 40) + '__' : '';
 
-// 2 itens: modelo 3D (.glb) + imagem 2D sem fundo (.png)
-const files = [
-  { kind: 'glb', binary: $input.first().binary },
-  { kind: 'png', binary: $('Remove Background').first().binary },
-];
+// Sempre a imagem 2D sem fundo (.png); o modelo 3D (.glb) só no modo "2D + 3D".
+const files = [{ kind: 'png', binary: $('Remove Background').first().binary }];
+if ($('Download GLB').isExecuted) files.unshift({ kind: 'glb', binary: $('Download GLB').first().binary });
 return files.map(({ kind, binary }) => {
   const fileName = `${base}.${kind}`;
   return { json: { kind, folder, fileName, filePath: `${folder}/${fileName}`, fallbackPath: `${containerRoot}/${prefix}${fileName}` }, binary };
@@ -646,7 +665,7 @@ return files.map(({ kind, binary }) => {
         "options": {},
     }, onError="continueErrorOutput"))
     fallback = g.add(code("Use Root Folder", [X(8), Y4 + 100], """
-// A pasta de destino não existe dentro do container: salva na raiz montada para não perder o modelo.
+// A pasta de destino não existe dentro do container: salva na raiz montada para não perder os arquivos.
 return $('Build File Path').all().map((src) => ({
   json: { ...src.json, filePath: src.json.fallbackPath, warning: `Pasta ${src.json.folder} não existe; arquivos salvos na raiz.` },
   binary: src.binary,
@@ -663,7 +682,8 @@ return $('Build File Path').all().map((src) => ({
 return [{ json: {
   savedTo: $input.all().map((i) => i.json.fileName),
   warning: $('Use Root Folder').isExecuted ? $('Use Root Folder').first().json.warning : '',
-  taskId: $('Task Info').first().json.taskId,
+  mode: $('Context').first().json.mode,
+  taskId: $('Task Info').isExecuted ? $('Task Info').first().json.taskId : null,
   iterations: $('Context').first().json.iteration,
   imagePrompt: $('Build Review Link').first().json.imagePrompt,
 } }];
@@ -679,8 +699,10 @@ return [{ json: {
     g.link(decision, approved_render, 0)
     g.link(decision, apply_fb, 1)
     g.link(apply_fb, context)                       # loop de feedback
-    g.chain(approved_render, approved_respond, download_2d, remove_bg, to_b64, meshy_create, task,
-            wait_poll, get_status, status)
+    g.chain(approved_render, approved_respond, download_2d, remove_bg, want_3d)
+    g.link(want_3d, to_b64, 0)                       # 2D + 3D
+    g.link(want_3d, build_path, 1)                   # Apenas 2D: salva só o PNG
+    g.chain(to_b64, meshy_create, task, wait_poll, get_status, status)
     g.link(status, download, 0)
     g.link(status, stop_failed, 1)
     g.link(status, can_poll, 2)

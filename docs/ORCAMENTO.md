@@ -20,7 +20,8 @@ Confira as fontes antes de fechar contrato, porque os preços mudam com frequên
 | 3D | Meshy **Ultra** | assinatura | US$ 100/mês → 10.000 créditos (US$ 0,01/crédito) |
 | Hospedagem (opcional) | Hetzner CX23 (2 vCPU, 4 GB, 40 GB) | mensal | € 5,49/mês (UE) |
 
-O plano Free do Meshy **não gera chave de API**, então a assinatura Pro é o único custo fixo obrigatório.
+O plano Free do Meshy **não gera chave de API**, então a assinatura Pro é o único custo fixo, e só é
+obrigatória se você usar o modo **2D + 3D**. No modo **Apenas 2D**, o Meshy não é chamado.
 Tasks que falham são reembolsadas em créditos.
 
 ## 2. Custo por asset
@@ -36,7 +37,9 @@ Premissa: **3 imagens 2D por asset** (1ª geração + 2 rodadas de "Modificar").
 | Meshy com textura, plano Pro | 30 créditos × 0,02 | US$ 0,60 |
 | **Total por asset** | | **≈ US$ 0,72** |
 
-O Meshy responde por **~83%** do custo. O LLM é desprezível: mesmo com o Gemini 2.5 Flash e os tokens de
+**Modo Apenas 2D:** o mesmo cálculo, sem a linha do Meshy, dá **≈ US$ 0,12 por asset**, sem custo fixo.
+
+No modo 2D + 3D, o Meshy responde por **~83%** do custo. O LLM é desprezível: mesmo com o Gemini 2.5 Flash e os tokens de
 "thinking" (~1.000 de saída), fica em ~US$ 0,01 por asset.
 
 Variações:
@@ -49,7 +52,8 @@ Variações:
 
 | Cenário | Assets/mês | Meshy | Imagens 2D | LLM | Infra | **Total/mês** |
 |---|---|---|---|---|---|---|
-| **Parado** (só manter ativo) | 0 | US$ 20 (Pro) | 0 | 0 | PC local | **US$ 20** |
+| **Só 2D** | 100 (Apenas 2D) | — | US$ 11,70 | US$ 0,15 | PC local | **≈ US$ 12** |
+| **Parado** (3D disponível) | 0 | US$ 20 (Pro) | 0 | 0 | PC local | **US$ 20** |
 | **Hobby** | 10 | US$ 20 (usa 300 de 1.000 créditos) | US$ 1,17 | US$ 0,02 | PC local | **≈ US$ 21** |
 | **Indie** (limite do Pro) | 33 | US$ 20 (990 créditos) | US$ 3,86 | US$ 0,05 | PC local ou VPS € 5,49 | **≈ US$ 24** (+ € 5,49 com VPS) |
 | **Estúdio** | 300 | US$ 100 (Ultra, 9.000 créditos) | US$ 35,10 | US$ 0,45 | VPS € 5,49 | **≈ US$ 136 + € 5,49** |
